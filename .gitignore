@@ -1,0 +1,25 @@
+# Secrets (never commit)
+config.json
+.env
+*.env
+!.env.example
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Build output
+build/
+dist/
+_stage/
+
+# Compiled release: publish the .zip via GitHub Releases, not in git history
+release/
+
+# OS / editor
+Thumbs.db
+.DS_Store
+.vscode/
+.idea/

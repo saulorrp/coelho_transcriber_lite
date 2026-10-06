@@ -1,0 +1,147 @@
+Log de Trabalho - Coelho Transcriber (GUI e Worker)
+===================================================
+
+1. Criação do layout inicial da interface (main_gui.py)
+   - Layout da janela principal dividido com QSplitter (Painel Esquerdo para lista de áudios, Painel Direito para configurações e console de logs).
+   - Estilização completa com paleta de cores escura (BG_BASE="#0d0d0d", etc.) e customização de CSS do PyQt6.
+   - Implementação do método `_setup_paths` para lidar perfeitamente com a extração de arquivos e paths ao compilar via PyInstaller (`sys._MEIPASS`).
+   - Implementação visual de um ToggleSwitch customizado feito do zero com QPainter para uma transição suave entre o modo "Local" e "AssemblyAI".
+
+2. Criação da Thread de Transcrição (transcription_worker.py)
+   - Extração da lógica dos scripts CLI originais (tanto o pipeline WhisperX+Pyannote quanto o do AssemblyAI) para uma classe `TranscriptionWorker` herdando de `QThread`.
+   - Adição de sinais assíncronos do PyQt (`log_signal`, `error_signal`, `finished_signal`) para alimentar a interface em tempo real sem travar a tela (congelamentos).
+   - Inclusão do código para liberar memória (`gc.collect()`, `torch.cuda.empty_cache()`) após a transcrição de cada áudio no modo local, evitando vazamentos e estouro de VRAM da placa de vídeo.
+   - Passagem parametrizada da API Key do AssemblyAI e do Token do Hugging Face vindos diretamente dos campos da interface para o inicializador do Worker.
+
+3. Diarização e Seleção Interativa do Falante Principal (F.)
+   - Construção de mecanismo de bloqueio na thread de transcrição, usando `threading.Event` e `request_speaker_signal`.
+   - Sempre que o worker (seja local ou nuvem) detecta os falantes e está pronto para exportar, ele pausa e envia as informações para a GUI.
+   - Criação da janela secundária `SpeakerSelectionDialog` no `main_gui.py`. A janela exibe os falantes disponíveis em um formato amigável, mostrando % de tempo falado, e sugere ativamente qual falante parece ser o "F." com um selo verde "SUGERIDO".
+   - Após a escolha no dialog, o programa destrava a thread de volta e continua a montagem final dos logs e salvamento dos arquivos `.txt`.
+
+4. Fechamento e Organização
+   - Movimentação dos arquivos mais recentes e funcionais (`main_gui.py` e `transcription_worker.py`) da pasta `Digitalizações 08-2026` para a raiz oficial do projeto em `Coelho Transcriber`.
+   - Escrita deste arquivo de log documentando os avanços realizados.
+
+5. Suporte a Modo Dia / Modo Claro (Day Mode)
+   - Paleta oficial do Modo Dia configurada com base RGBA `fffae7ff` (`#fffae7`) para o fundo e `366f93ff` (`#366f93`) para botões de destaque (como Transcrever) e interruptores (Toggle Switches).
+   - Botão compacto no topo da janela com alternância instantânea entre os símbolos `𖤓` e `☾`.
+   - Adaptação dinâmica de todos os componentes da interface (painéis, list widget, inputs, scrollbars, ToggleSwitch e janela de seleção de falantes `SpeakerSelectionDialog`).
+
+
+6. Integração do Ícone (icon.ico / icon.png)
+   - Configuração do `SetCurrentProcessExplicitAppUserModelID` no Windows para exibição correta do ícone na barra de tarefas (taskbar) do sistema operacional.
+   - Aplicação do ícone `icon.ico` na barra de título da janela principal (`MainWindow`) e em janelas modais (`SpeakerSelectionDialog`).
+   - Inclusão do ícone gráfico de alta qualidade no topo da interface ao lado do título do aplicativo.
+
+7. Sistema de Abas (Tabs), Persistência de Configurações e Modo Acadêmico
+   - Implementação de `QTabWidget` dividindo a interface em duas abas: "🎙️ Transcrição" e "⚙️ Configurações".
+   - Separação clara e visual na aba de configurações entre:
+     * Transcrição Local: Token do Hugging Face (Pyannote) com botão de revelar senha.
+     * Transcrição em Nuvem: API Key do AssemblyAI e switch do "Modo Acadêmico" (`--academic` com pós-processamento via LLM).
+   - Persistência automática de dados em `config.json`: chaves, tokens, preferências de tema e modo de execução são salvos e recarregados automaticamente ao reiniciar o programa.
+
+8. Animação de Espera com o Coelho Saltador (Jumping Rabbit)
+   - Implementação de temporizador de 220ms alternando entre `icon.png` (pouso) e `icon2.png` (salto no ar) durante o processamento.
+   - O ícone do cabeçalho da interface anima suavemente indicando atividade contínua.
+   - Adicionado um banner elegante e minimalista de status na aba de transcrição com o coelho em movimento, aviso de processamento e botão para abortar a tarefa.
+
+9. Limpeza Visual de Emojis e Correção de Fundo na Aba de Configurações
+   - Remoção de todos os emojis da interface (títulos de abas, cards, botões de ação e alertas de log), preservando exclusivamente os símbolos `☼` e `☾` no botão de alternância de tema.
+   - Correção do fundo da aba de Configurações (`QScrollArea` e container interno) no Modo Dia para garantir aplicação uniforme de `#fffae7`, eliminando qualquer resquício escuro (`#1e1e1e`).
+
+10. Reordenação da Aba de Configurações e Migração do Interruptor de Transcrição Local
+   - A aba de Configurações agora exibe a "Transcrição em Nuvem (AssemblyAI)" no topo e a "Transcrição Local (WhisperX + Pyannote)" na parte inferior.
+   - O interruptor de alternância (ToggleSwitch) da Transcrição Local foi movido para o cabeçalho do card de Transcrição Local, permitindo ativar/desativar o processamento local com um clique.
+   - A aba de Transcrição passa a exibir um indicador compacto e informativo com o modo de execução ativo.
+
+11. Definição do Modo Dia (Day Mode) como Padrão de Inicialização
+   - Configuração de `config.json` e inicializador da `MainWindow` para carregar nativamente no Modo Dia (`theme: "day"`, base `#fffae7`, botões `#366f93`).
+
+12. Melhorias de UI, Nova Aba de Leitor, Indicadores Visuais e Confirmação de Fila
+   - Log: renomeado rótulo para 'Logs' e removida a mensagem de troca de tema no console.
+   - Pop-up de Falantes (SpeakerSelectionDialog): cards agora contidos em um QScrollArea com rolagem fluida e botão de 'Confirmar seleção' fixo e visível no rodapé da janela.
+   - Nova Aba 'Leitor' (Transcrições Salvas): aba com visualizador dividido (QSplitter) listando os arquivos .txt gerados na pasta de saída e painel de pré-visualização de texto com atualização automática e botão '↻ Atualizar Lista'.
+   - Indicador Visual na Fila de Áudios: substituição de texto simples por itens com selo de destaque 'Concluído' revelado conforme cada áudio finaliza a transcrição.
+   - Confirmação entre Áudios: pausa controlada por threading.Event e diálogo (QMessageBox) perguntando se o usuário deseja prosseguir para o próximo arquivo da fila.
+   - Correção de Estilização: botão 'Transcrever Fila' com cor azul de destaque garantida (#366f93 no Modo Dia) e isolamento de seletores CSS para evitar herança indevida de cor de fundo.
+   - Pausa da Animação do Coelho: a animação do coelho é automaticamente pausada (exibindo o frame estático inicial) enquanto o programa aguarda a designação do falante principal (F.) ou a permissão para continuar a fila, sendo retomada imediatamente após a confirmação do usuário.
+
+13. Suite Completa de Edição de Texto na Aba 'Leitor'
+   - Editor Interativo (QPlainTextEdit): edição direta de texto com suporte nativo a Undo/Redo, quebra de linha inteligente e fonte monoespaçada com contraste otimizado.
+   - Salvamento Rápido e Cópia Revisada: botões 'Salvar (Ctrl+S)' para gravação direta e 'Salvar como Revisada' para gerar automaticamente uma nova versão com sufixo '_revisada.txt' na pasta de saída.
+   - Barra de Localizar & Substituir (Ctrl+F / Ctrl+H): painel retrátil com contagem de ocorrências em tempo real, navegação (Próximo / Anterior), substituição pontual, substituição em lote ('Substituir Tudo') e filtros de sensibilidade a maiúsculas/minúsculas e palavras inteiras.
+   - Barra de Tags Rápidas: botões de 1 clique para inserção de marcadores sociolinguísticos no cursor: (hes), (inint), (ruído), (risos), (est), [?], (" "), [fala]-.
+   - Estatísticas em Tempo Real: rodapé com contadores dinâmicos de linhas, palavras, caracteres e posição do cursor (Linha/Coluna).
+   - Proteção de Alterações Não Salvas: alerta com diálogo (QMessageBox) antes de alternar de arquivo na lista caso haja modificações pendentes.
+
+14. Reformulação da Fila de Áudios e Ferramenta de Acessibilidade Visual (Escala de Fonte)
+   - Fila de Áudios Reformulada (AudioQueueItemWidget): redesenhada do zero com layout estável e de altura fixa, ícone musical ('♪'), tooltip com caminho completo do arquivo, selo 'Concluído' com contraste garantido e botão '✕' para remoção individual de áudios antes da transcrição.
+   - Ferramenta de Acessibilidade Visual na Aba Configurações: novo card dedicado com QSlider horizontal (11px a 22px), botões de ajuste fino 'A-' e 'A+', botão 'Padrão (13px)', indicador de porcentagem e painel de pré-visualização de texto ao vivo.
+   - Escala Global de Tipografia: redimensionamento dinâmico e proporcional de todos os textos, abas, botões, campos de entrada, logs, caixas de diálogo e editor de texto com persistência automática em `config.json` (`font_size`).
+
+15. Numeração de Linhas e Destaque Interativo no Editor (TranscriptEditor)
+   - Gutter de Numeração de Linhas (LineNumberArea): área lateral esquerda que enumera automaticamente todas as linhas visíveis do arquivo de transcrição.
+   - Destaque Interativo por Clique: clicar no número da linha destaca a linha inteira em azul suave (no Tema Dia) ou vermelho/carmesim suave (no Tema Noite), facilitando a leitura guiada e conferência de trechos.
+   - Alternância (Toggle) e Múltiplas Linhas: clicar novamente no número de uma linha destacada remove seu destaque. Permite múltiplos destaques simultâneos independentes.
+   - Sincronização com Temas e Fontes: largura do gutter, contraste numérico e cores de realce adaptam-se automaticamente ao tema e ao tamanho de fonte escolhido.
+
+16. Atualização da Cor de Destaque do Modo Escuro (Dark Mode) para Vermelho/Marrom (#800000)
+   - Substituição completa de todas as ocorrências de verde (`#55aa55` / `#66cc66`) no tema escuro por `#800000` (`ACCENT_PRIMARY`) e `#990000` (`ACCENT_HOVER`).
+   - Aplicação unificada em botões principais, switches de alternância, bordas ativas, selos de conclusão, barras de status, foco de inputs e destaques de linha no leitor de transcrições.
+
+17. Novos Ícones e Animação Dinâmica por Tema (components/icons)
+   - Reorganização de Pastas: migração de todos os recursos visuais para o diretório `components/icons/`.
+   - Suporte a Ícones Específicos por Tema:
+     * Modo Dia: `icon.ico` / `icon.png` (frame estático) e `icon2.ico` / `icon2.png` (frame de animação).
+     * Modo Noite: `icon_dark.ico` / `icon_dark.png` (frame estático) e `icon2_dark.ico` / `icon2_dark.png` (frame de animação).
+   - Alternância Dinâmica de Ícone e Animação: o ícone da barra de títulos da janela principal, diálogos modais e o coelho animado no cabeçalho e banner de status alternam instantaneamente conforme o tema selecionado.
+
+18. Ampliação do Coelho no Banner de Status e Animação Inteligente no Cabeçalho
+   - Coelho Maior e com Mais Destaque: renderização ampliada (42x42 px) no banner de status logo acima do console de logs para maior clareza visual durante o processamento.
+   - Animação Inteligente e Contextual no Cabeçalho: o ícone do coelho no topo da tela permanece estático (sem se mover) enquanto o usuário estiver navegando na aba 'Transcrição', e passa a animar automaticamente apenas quando o usuário alterna para outra aba (ex: 'Leitor' ou 'Configurações') enquanto a transcrição estiver em andamento.
+
+19. Integração do Deepgram (Nova-3) como Terceiro Motor de Transcrição e Monitor de Saldo
+   - Seletor de Modo Triplo (QComboBox): substituição do interruptor binário Local/Nuvem por um seletor unificado de 3 opções na aba de Transcrição:
+     * Transcrição Local (WhisperX + Pyannote)
+     * Transcrição em Nuvem (AssemblyAI - Universal-3.5) [Padrão]
+     * Transcrição em Nuvem (Deepgram - Nova-3) [Alta Velocidade]
+   - Novo Card do Deepgram na Aba de Configurações: campo seguro para Deepgram API Key (com botão 'Mostrar'/'Ocultar') e botão 'Verificar Saldo (Deepgram)' para consulta assíncrona do saldo em dólares/créditos restantes via endpoints `/v1/projects` e `/balances`.
+   - Pipeline de Transcrição Deepgram no Worker: implementação completa em `transcription_worker.py` usando `deepgram-sdk` (v3) com modelo Nova-3, português brasileiro (`pt-BR`), diarização, pontuação e `smart_format`.
+   - Adaptador de Palavras para Utterances: agrupamento dinâmico de palavras do Deepgram por falante (`DeepgramUtterance` / `DeepgramWordAdapter`), garantindo compatibilidade total com o diálogo de seleção do falante principal (F.), cálculo de estatísticas de confiança e pós-processamento do Modo Acadêmico (--academic).
+   - Persistência e Retrocompatibilidade em `config.json`: novo campo `transcription_mode` e `deepgram_api_key`, com migração automática transparente de configurações legadas baseadas em `is_cloud`.
+
+20. Atualização das Notas de Rodapé e Créditos na Aba de Configurações
+   - Ajuste Tipográfico do Auto-save: o aviso "As configurações e chaves são salvas automaticamente." foi atualizado para fonte regular (não itálica) na cor primária (branco no tema escuro).
+   - Apoio Institucional (CAPES) e Créditos Reativos ao Tema: frases formatadas em itálico com cores reativas: azul de destaque (`#366f93`) no Modo Dia e vermelho suave (`#ff5555`) no Modo Noite.
+   - Link de Contato: e-mail `saulorrp@gmail.com` integrado como link clicável nativo.
+
+21. Correção de Contraste e Estilização do Seletor de Modo (QComboBox)
+   - Contraste Garantido no Modo Dia: o texto do item selecionado e do menu suspenso do seletor de modo passa a usar explicitamente a cor primária escura (`#1c1b18`) no fundo claro (`#ffffff`), eliminando qualquer texto branco ilegível.
+   - Sincronização Dinâmica com Temas: estilização direta no `apply_theme` para garantir bordas suaves (`#d6caa7` no Dia, `#333333` no Noite), realces nos hovers e seleção com texto em alto contraste.
+
+22. Atalhos e Suporte Completo a Desfazer / Refazer (Ctrl+Z / Ctrl+Y / Ctrl+Shift+Z)
+   - Atalhos de Teclado no Editor: `Ctrl+Z` configurado para Desfazer (Undo), e `Ctrl+Y` / `Ctrl+Shift+Z` configurados para Refazer (Redo).
+   - Operações com Histórico Atômico: a inserção de tags sociolinguísticas e a substituição pontual ou em lote de termos foram agrupadas em blocos de edição atômicos (`beginEditBlock`/`endEditBlock`), permitindo desfazer tags ou substituições com um único `Ctrl+Z`.
+
+23. Correção e Otimização do Monitor de Saldo do Deepgram (DeepgramBalanceWorker)
+   - Execução Assíncrona via QThread: migração do balance checker para um worker dedicado `DeepgramBalanceWorker(QThread)` com comunicação segura por sinais (`pyqtSignal`), eliminando bloqueios na interface e garantindo retorno imediato do saldo.
+   - Tratamento de Erros de Conexão: mensagens claras para chaves inválidas (401), permissões restritas (403 - requer permissão de Administrador/Owner no painel Deepgram) e planos pay-as-you-go.
+
+24. Sistema de Empacotamento e Distribuição Onedir (PyInstaller + Instaladores)
+   - Especificação PyInstaller (`CoelhoTranscriber.spec`): compilação standalone em modo pasta (`onedir=True`, `windowed=True`) incluindo ativos da pasta `components/`, configuração de `datas` e `hiddenimports` para WhisperX, Pyannote, PyTorch, CTranslate2, AssemblyAI e Deepgram.
+   - Instalador Master (`Instalar_Transcritor.bat`): script batch para instalação do executável em `%LOCALAPPDATA%\Coelho95Transcriber`, criação automatizada das pastas de trabalho em `%USERPROFILE%\Documents\Coelho95 Transcriber` e geração de atalhos na Área de Trabalho e Menu Iniciar.
+   - Desinstalador Limpo (`desinstalar.bat`): remoção completa da instalação e atalhos, com rotina de limpeza de cache de modelos de IA (~4GB+ em `.cache/whisper`, `.cache/huggingface` e `.cache/torch`) e opção de preservação/remoção dos documentos.
+
+25. Definição do Deepgram como Motor Padrão e Reorganização das Configurações
+   - Motor Padrão na Interface: `Deepgram (Nova-3)` passa a ser a primeira opção selecionada por padrão (`index 0`) no seletor de modos da tela principal.
+   - Reordenação na Aba de Configurações: o card de configuração da chave e saldo do Deepgram foi movido para o topo (Seção 1), seguido por AssemblyAI (Seção 2), Transcrição Local (Seção 3) e Acessibilidade (Seção 4).
+   - Persistência e Mapeamento Interno: sincronização do `_MODE_INDEX_MAP` (`cloud_deepgram`: 0, `cloud_assemblyai`: 1, `local`: 2) e persistência em `config.json`.
+
+
+
+
+
+
+
+
