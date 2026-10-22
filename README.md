@@ -8,9 +8,9 @@ audio files to a speech-to-text API and gives you back a speaker-labelled
 transcript. It was written for sociolinguistic interview work (Brazilian
 Portuguese by default), but works for any audio the APIs support.
 
-> ⚠️ **Disclaimer:** this project was built "by vibes" with AI assistance. It is
-> a personal utility, provided as-is, with no warranty. Review the code before
-> relying on it for anything important.
+> ⚠️ **Disclaimer:** this project was built on vibes and AI assistance. It is
+> a personal utility, provided as-is, with no warranty. Review the code and
+> its result before relying on it for anything too important.
 
 ## Features
 
