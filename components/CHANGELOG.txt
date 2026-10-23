@@ -138,6 +138,17 @@ Log de Trabalho - Coelho Transcriber (GUI e Worker)
    - Reordenação na Aba de Configurações: o card de configuração da chave e saldo do Deepgram foi movido para o topo (Seção 1), seguido por AssemblyAI (Seção 2), Transcrição Local (Seção 3) e Acessibilidade (Seção 4).
    - Persistência e Mapeamento Interno: sincronização do `_MODE_INDEX_MAP` (`cloud_deepgram`: 0, `cloud_assemblyai`: 1, `local`: 2) e persistência em `config.json`.
 
+26. Transcrição Contínua em Fila e Seleção Desacoplada do Falante Principal (F.)
+   - Continuidade Ininterrupta da Fila: eliminação de bloqueios forçados na fila de transcrição. O pipeline não aborta nem paralisa se o usuário não selecionar o F imediatamente.
+   - Temporizador Inteligente com Auto-aplicação (15s): o popup de seleção de falantes agora conta com um timer regressivo visual de 15 segundos (QTimer). Caso o usuário esteja ausente, o falante mais provável (maior tempo de fala) é atribuído provisoriamente e o próximo áudio da fila inicia automaticamente.
+   - Botões de Controle no Popup: opções "⏸ Pausar tempo" (permite escolher com calma), "Decidir depois (usar sugerido)" e fechamento com 'X' sem abortar a fila de transcrição.
+   - Continuidade Automática entre Áudios: remoção da caixa de diálogo modal de confirmação entre arquivos na fila, permitindo transcrever dezenas de horas de áudio de forma autônoma e contínua.
+   - Persistência de Metadados de Falantes: criação de `widgets/speaker_manager.py` e arquivos `.speaker_meta.json` preservando utterances, durações e mapeamentos para reatribuição a qualquer momento.
+   - Seleção de Falantes Posterior e Sob Demanda:
+     * Fila de Áudios: cada item concluído exibe o botão `[⚠️ Definir F]` (para provisórios) ou `[Falante: X]` (para confirmados), permitindo reatribuir o F diretamente com 1 clique.
+     * Fim da Fila: diálogo opcional ao término do lote perguntando se o usuário deseja revisar sequencialmente todos os áudios com falante provisório.
+     * Aba Leitor: botão "👤 Definir Falante (F.)" na barra superior do editor para alterar o falante principal de qualquer arquivo aberto com atualização instantânea na tela.
+
 
 
 

@@ -8,12 +8,16 @@ block_cipher = None
 # NOTE: config.json (contains user API keys) must NEVER be bundled.
 datas = [
     ('components', 'components'),
+    ('widgets', 'widgets'),
+    ('dialogs', 'dialogs'),
 ]
 
 # ── Hidden imports collection ───────────────────────────────────────────────
 hiddenimports = [
     # Application modules
     'components.transcription_worker',
+    'widgets.speaker_manager',
+    'dialogs.speaker_dialog',
 
     # Cloud & Network
     'assemblyai',

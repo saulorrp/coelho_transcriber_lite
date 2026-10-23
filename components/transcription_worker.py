@@ -15,9 +15,20 @@ import gc
 import time
 import json
 import threading
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Tuple
 
 from PyQt6.QtCore import QThread, pyqtSignal
+
+# Ensure widgets directory is available
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+WIDGETS_DIR = os.path.join(BASE_DIR, "widgets")
+if WIDGETS_DIR not in sys.path:
+    sys.path.insert(0, WIDGETS_DIR)
+
+try:
+    from speaker_manager import save_speaker_metadata
+except ImportError:
+    save_speaker_metadata = None
 
 # ── Constants (shared across both modes) ─────────────────────────────────────
 AUDIO_EXTENSIONS = (
@@ -234,6 +245,7 @@ class TranscriptionWorker(QThread):
         # ── Speaker-selection synchronisation ────────────────────────────
         self._speaker_event = threading.Event()
         self._selected_speaker_id: Optional[str] = None
+        self._selected_speaker_confirmed: bool = False
 
         # ── Continue-confirmation synchronisation ────────────────────────
         self._continue_event = threading.Event()
@@ -247,9 +259,10 @@ class TranscriptionWorker(QThread):
         self._speaker_event.set()
         self._continue_event.set()
 
-    def set_selected_speaker(self, speaker_id: str):
-        """Called from the GUI (main thread) after the user picks a speaker."""
+    def set_selected_speaker(self, speaker_id: Optional[str], is_confirmed: bool = True):
+        """Called from the GUI (main thread) after the user picks a speaker or accepts suggested."""
         self._selected_speaker_id = speaker_id
+        self._selected_speaker_confirmed = is_confirmed
         self._speaker_event.set()
 
     def set_continue_response(self, should_continue: bool):
@@ -448,7 +461,7 @@ class TranscriptionWorker(QThread):
                 return
 
             self._step(2, total_steps, "Atribuindo falantes…")
-            f_speaker_id = self._request_speaker_selection_cloud(utterances)
+            f_speaker_id, speaker_info = self._request_speaker_selection_cloud(utterances, filepath)
             if f_speaker_id is None:   # aborted
                 return
             speaker_map = build_speaker_map_cloud(utterances, f_speaker_id, self.academic_mode)
@@ -491,6 +504,34 @@ class TranscriptionWorker(QThread):
             if flagged:
                 self._log(f"  ⚠️  {flagged} segmento(s) com baixa confiança.")
 
+            # Save speaker metadata so F can be changed later
+            academic_out_path = os.path.join(self.output_dir, out_name) if self.academic_mode else None
+            if save_speaker_metadata:
+                meta = {
+                    "audio_filepath": filepath,
+                    "filename": os.path.basename(filepath),
+                    "txt_filepath": raw_out_path,
+                    "academic_txt_filepath": academic_out_path,
+                    "academic_mode": self.academic_mode,
+                    "f_speaker_id": f_speaker_id,
+                    "is_confirmed": getattr(self, "_selected_speaker_confirmed", False),
+                    "speaker_info": speaker_info,
+                    "speaker_map": speaker_map,
+                    "utterances": [
+                        {
+                            "speaker": utt.speaker if utt.speaker else "UNKNOWN",
+                            "start": utt.start,
+                            "end": utt.end,
+                            "start_str": format_time(utt.start / 1000.0),
+                            "end_str": format_time(utt.end / 1000.0),
+                            "text": utt.text.strip(),
+                            "flag": flag_low_confidence_cloud(utt),
+                        }
+                        for utt in utterances
+                    ]
+                }
+                save_speaker_metadata(self.output_dir, meta)
+
             if not self.academic_mode:
                 self._log(f"  ✅  Salvo → {raw_out_path}")
                 return
@@ -502,7 +543,6 @@ class TranscriptionWorker(QThread):
 
             # ── LLM academic formatting ──────────────────────────────────
             self._step(4, total_steps, "Aplicando formatação acadêmica via LLM Gateway…")
-            academic_out_path = os.path.join(self.output_dir, out_name)
             academic_lines = self._format_academic_llm(raw_lines, aai)
 
             with open(academic_out_path, "w", encoding="utf-8") as f:
@@ -514,8 +554,8 @@ class TranscriptionWorker(QThread):
         except Exception as exc:
             self.error_signal.emit(f"Erro ao processar '{os.path.basename(filepath)}': {exc}")
 
-    def _request_speaker_selection_cloud(self, utterances: list) -> Optional[str]:
-        """Emit speaker info to the GUI and block until the user picks one."""
+    def _request_speaker_selection_cloud(self, utterances: list, filepath: str = "") -> Tuple[Optional[str], List[dict]]:
+        """Emit speaker info to the GUI and wait or fallback to suggested so queue continues."""
         # Gather unique speakers in order of appearance
         seen: List[str] = []
         for utt in utterances:
@@ -539,6 +579,8 @@ class TranscriptionWorker(QThread):
                 "first_text": text,
                 "duration": dur,
                 "pct": pct,
+                "filepath": filepath,
+                "filename": os.path.basename(filepath) if filepath else "",
             })
 
         suggested = max(durations, key=durations.get)
@@ -547,17 +589,21 @@ class TranscriptionWorker(QThread):
 
         self._speaker_event.clear()
         self._selected_speaker_id = None
+        self._selected_speaker_confirmed = False
         self._log("  ⏸  Aguardando seleção do falante principal (F.)…")
         self.request_speaker_signal.emit(speaker_info)
         self._speaker_event.wait()
 
-        if self._abort or self._selected_speaker_id is None:
-            return None
+        if self._abort:
+            return None, speaker_info
 
-        chosen = self._selected_speaker_id
+        chosen = self._selected_speaker_id or suggested
         pct = (durations.get(chosen, 0) / total_time) * 100 if total_time > 0 else 0
-        self._log(f"  ✓  F atribuído a {chosen} ({pct:.1f}% do tempo de fala)")
-        return chosen
+        if getattr(self, "_selected_speaker_confirmed", False):
+            self._log(f"  ✓  F atribuído a {chosen} ({pct:.1f}% do tempo de fala)")
+        else:
+            self._log(f"  ✓  F atribuído provisoriamente a {chosen} ({pct:.1f}% do tempo) – você pode alterar depois")
+        return chosen, speaker_info
 
     # ══════════════════════════════════════════════════════════════════════
     #  DEEPGRAM pipeline  (Nova-3)
@@ -760,7 +806,7 @@ class TranscriptionWorker(QThread):
                 return
 
             self._step(2, total_steps, "Atribuindo falantes…")
-            f_speaker_id = self._request_speaker_selection_cloud(utterances)
+            f_speaker_id, speaker_info = self._request_speaker_selection_cloud(utterances, filepath)
             if f_speaker_id is None:   # aborted
                 return
             speaker_map = build_speaker_map_cloud(utterances, f_speaker_id, self.academic_mode)
@@ -802,6 +848,34 @@ class TranscriptionWorker(QThread):
 
             if flagged:
                 self._log(f"  ⚠️  {flagged} segmento(s) com baixa confiança.")
+
+            # Save speaker metadata so F can be changed later
+            academic_out_path = os.path.join(self.output_dir, out_name) if self.academic_mode else None
+            if save_speaker_metadata:
+                meta = {
+                    "audio_filepath": filepath,
+                    "filename": os.path.basename(filepath),
+                    "txt_filepath": raw_out_path,
+                    "academic_txt_filepath": academic_out_path,
+                    "academic_mode": self.academic_mode,
+                    "f_speaker_id": f_speaker_id,
+                    "is_confirmed": getattr(self, "_selected_speaker_confirmed", False),
+                    "speaker_info": speaker_info,
+                    "speaker_map": speaker_map,
+                    "utterances": [
+                        {
+                            "speaker": utt.speaker if utt.speaker else "UNKNOWN",
+                            "start": utt.start,
+                            "end": utt.end,
+                            "start_str": format_time(utt.start / 1000.0),
+                            "end_str": format_time(utt.end / 1000.0),
+                            "text": utt.text.strip(),
+                            "flag": flag_low_confidence_cloud(utt),
+                        }
+                        for utt in utterances
+                    ]
+                }
+                save_speaker_metadata(self.output_dir, meta)
 
             if not self.academic_mode:
                 self._log(f"  ✅  Salvo → {raw_out_path}")

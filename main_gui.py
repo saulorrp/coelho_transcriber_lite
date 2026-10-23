@@ -2,16 +2,25 @@ import sys
 import os
 import json
 import time
+from typing import Optional, List, Dict, Tuple
 
-# Ensure components directory is in python path
+# Ensure components, widgets, and dialogs directories are in python path
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-COMPONENTS_DIR = os.path.join(BASE_DIR, "components")
-if COMPONENTS_DIR not in sys.path:
-    sys.path.insert(0, COMPONENTS_DIR)
-if getattr(sys, 'frozen', False) and hasattr(sys, '_MEIPASS'):
-    meipass_components = os.path.join(sys._MEIPASS, "components")
-    if meipass_components not in sys.path:
-        sys.path.insert(0, meipass_components)
+for sub in ["components", "widgets", "dialogs"]:
+    sub_path = os.path.join(BASE_DIR, sub)
+    if sub_path not in sys.path:
+        sys.path.insert(0, sub_path)
+    if getattr(sys, 'frozen', False) and hasattr(sys, '_MEIPASS'):
+        meipass_sub = os.path.join(sys._MEIPASS, sub)
+        if meipass_sub not in sys.path:
+            sys.path.insert(0, meipass_sub)
+
+from speaker_dialog import SpeakerSelectionDialog
+from speaker_manager import (
+    load_speaker_metadata,
+    update_transcript_speakers,
+    get_meta_base_name,
+)
 
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
@@ -432,214 +441,17 @@ def get_stylesheet(theme: dict, font_size: int = 13) -> str:
 """
 
 
-# ==================== SPEAKER SELECTION DIALOG ====================
-class SpeakerSelectionDialog(QDialog):
-    """
-    Modal dialog that displays detected speakers with their stats
-    and lets the user pick which one is the main speaker (F.).
-    """
-
-    def __init__(self, speaker_info: list, parent=None, theme=None):
-        super().__init__(parent)
-        self.theme = theme or THEMES["day"]
-        self.setWindowTitle("Selecionar Falante Principal (F.)")
-        self.setMinimumWidth(520)
-
-        # Set window icon
-        if parent and hasattr(parent, "current_window_icon_path") and os.path.exists(parent.current_window_icon_path):
-            self.setWindowIcon(QIcon(parent.current_window_icon_path))
-        elif parent and hasattr(parent, "icon_path") and os.path.exists(parent.icon_path):
-            self.setWindowIcon(QIcon(parent.icon_path))
-        else:
-            base_dir = os.path.dirname(os.path.abspath(__file__))
-            cand = os.path.join(base_dir, "components", "icons", "icon.ico")
-            if not os.path.exists(cand):
-                cand = os.path.join(base_dir, "components", "icon.ico")
-            if os.path.exists(cand):
-                self.setWindowIcon(QIcon(cand))
-
-        self.setStyleSheet(f"""
-            QDialog {{
-                background-color: {self.theme['BG_BASE']};
-            }}
-            QLabel {{
-                color: {self.theme['TXT_PRIMARY']};
-            }}
-            QRadioButton {{
-                color: {self.theme['TXT_PRIMARY']};
-                font-size: 13px;
-                spacing: 8px;
-            }}
-            QRadioButton::indicator {{
-                width: 16px;
-                height: 16px;
-                border: 2px solid {self.theme['BORDER_MID']};
-                border-radius: 9px;
-                background-color: {self.theme['BG_CARD']};
-            }}
-            QRadioButton::indicator:checked {{
-                background-color: {self.theme['ACCENT_PRIMARY']};
-                border-color: {self.theme['ACCENT_PRIMARY']};
-            }}
-            QPushButton#btn_confirm {{
-                background-color: {self.theme['ACCENT_PRIMARY']};
-                color: {self.theme['BTN_TEXT']};
-                font-weight: bold;
-                font-size: 14px;
-                padding: 10px 24px;
-                border: none;
-                border-radius: 6px;
-            }}
-            QPushButton#btn_confirm:hover {{
-                background-color: {self.theme['ACCENT_HOVER']};
-            }}
-            QPushButton#btn_confirm:disabled {{
-                background-color: {self.theme['BORDER_MID']};
-                color: {self.theme['TXT_SECONDARY']};
-            }}
-        """)
-
-        self.selected_id: str | None = None
-        self._speaker_info = speaker_info
-
-        layout = QVBoxLayout(self)
-        layout.setSpacing(14)
-        layout.setContentsMargins(24, 24, 24, 24)
-
-        # Title
-        title = QLabel("Quem é o falante principal (F.)?")
-        title.setStyleSheet(f"font-size: 16px; font-weight: bold; color: {self.theme['TXT_PRIMARY']};")
-        layout.addWidget(title)
-
-        subtitle = QLabel(
-            "O sistema detectou os seguintes falantes. "
-            "Selecione quem deve ser marcado como F. na transcrição."
-        )
-        subtitle.setWordWrap(True)
-        subtitle.setStyleSheet(f"color: {self.theme['TXT_SECONDARY']}; font-size: 12px; margin-bottom: 2px;")
-        layout.addWidget(subtitle)
-
-        # Speaker cards container inside QScrollArea
-        scroll = QScrollArea()
-        scroll.setWidgetResizable(True)
-        scroll.setFrameShape(QFrame.Shape.NoFrame)
-        scroll.setStyleSheet(f"QScrollArea {{ background-color: {self.theme['BG_BASE']}; border: none; }}")
-        
-        cards_widget = QWidget()
-        cards_widget.setStyleSheet(f"QWidget {{ background-color: {self.theme['BG_BASE']}; }}")
-        cards_layout = QVBoxLayout(cards_widget)
-        cards_layout.setSpacing(10)
-        cards_layout.setContentsMargins(0, 0, 6, 0)
-
-        self._btn_group = QButtonGroup(self)
-        self._btn_group.setExclusive(True)
-
-        for i, info in enumerate(speaker_info):
-            card = self._build_speaker_card(i, info)
-            cards_layout.addWidget(card)
-
-        cards_layout.addStretch()
-        scroll.setWidget(cards_widget)
-        layout.addWidget(scroll, stretch=1)
-
-        # Confirm button (Fixed at bottom, outside QScrollArea)
-        self.btn_confirm = QPushButton("Confirmar seleção")
-        self.btn_confirm.setObjectName("btn_confirm")
-        self.btn_confirm.setEnabled(False)
-        self.btn_confirm.clicked.connect(self._on_confirm)
-        layout.addWidget(self.btn_confirm, alignment=Qt.AlignmentFlag.AlignRight)
-
-        self._btn_group.buttonClicked.connect(self._on_radio_clicked)
-
-        # Responsive height constraints
-        self.resize(540, min(560, 180 + len(speaker_info) * 110))
-
-    def _build_speaker_card(self, index: int, info: dict) -> QFrame:
-        card = QFrame()
-        card.setStyleSheet(f"""
-            QFrame {{
-                background-color: {self.theme['BG_CARD']};
-                border: 1px solid {self.theme['BORDER_MID']};
-                border-radius: 6px;
-                padding: 12px;
-            }}
-            QFrame:hover {{
-                border-color: {self.theme['ACCENT_PRIMARY']};
-            }}
-        """)
-
-        card_layout = QVBoxLayout(card)
-        card_layout.setSpacing(6)
-        card_layout.setContentsMargins(12, 10, 12, 10)
-
-        # Top row: radio + speaker ID + badge
-        top_row = QHBoxLayout()
-        radio = QRadioButton(info["id"])
-        radio.setStyleSheet(f"font-weight: bold; font-size: 14px; color: {self.theme['TXT_PRIMARY']};")
-        self._btn_group.addButton(radio, index)
-        top_row.addWidget(radio)
-
-        if info.get("suggested"):
-            badge = QLabel("SUGERIDO")
-            badge.setStyleSheet(
-                f"background-color: {self.theme['ACCENT_PRIMARY']}; color: {self.theme['BTN_TEXT']}; "
-                f"font-size: 11px; font-weight: bold; padding: 2px 8px; border-radius: 3px;"
-            )
-            top_row.addWidget(badge)
-            # Pre-select the suggested speaker
-            radio.setChecked(True)
-            self.selected_id = info["id"]
-
-        top_row.addStretch()
-
-        # Stats row
-        duration_str = format_time(info["duration"])
-        stats = QLabel(
-            f"Tempo de fala: {duration_str}  ·  {info['pct']:.1f}% do total  ·  "
-            f"Primeira fala em {info['first_time']}"
-        )
-        stats.setStyleSheet(f"color: {self.theme['TXT_SECONDARY']}; font-size: 12px;")
-
-        # Preview row
-        preview_text = info["first_text"]
-        if len(preview_text) > 80:
-            preview_text = preview_text[:80] + "…"
-        preview = QLabel(f'"{preview_text}"')
-        preview.setWordWrap(True)
-        preview.setStyleSheet(f"color: {self.theme['TXT_SECONDARY']}; font-style: italic; font-size: 12px;")
-
-        card_layout.addLayout(top_row)
-        card_layout.addWidget(stats)
-        card_layout.addWidget(preview)
-
-        return card
-
-    def _on_radio_clicked(self, button):
-        idx = self._btn_group.id(button)
-        self.selected_id = self._speaker_info[idx]["id"]
-        self.btn_confirm.setEnabled(True)
-
-    def _on_confirm(self):
-        self.accept()
-
-    @staticmethod
-    def select_speaker(speaker_info: list, parent=None, theme=None) -> str | None:
-        dlg = SpeakerSelectionDialog(speaker_info, parent=parent, theme=theme)
-        if dlg.selected_id is not None:
-            dlg.btn_confirm.setEnabled(True)
-        result = dlg.exec()
-        if result == QDialog.DialogCode.Accepted:
-            return dlg.selected_id
-        return None
+# Note: SpeakerSelectionDialog is loaded from dialogs.speaker_dialog for modularity and maintainability.
 
 
 # ==================== AUDIO QUEUE ITEM WIDGET ====================
 class AudioQueueItemWidget(QWidget):
     """
     Refined custom item widget for the audio queue list with audio icon,
-    filename, status badge, and remove button.
+    filename, status badge, speaker assignment button, and remove button.
     """
     removed = pyqtSignal(str)
+    select_speaker_requested = pyqtSignal(str)
 
     def __init__(self, filename: str, filepath: str, theme: dict, font_size: int = 13, parent=None):
         super().__init__(parent)
@@ -647,6 +459,7 @@ class AudioQueueItemWidget(QWidget):
         self.filepath = filepath
         self.theme = theme
         self.font_size = font_size
+        self._is_speaker_confirmed: bool = True
 
         layout = QHBoxLayout(self)
         layout.setContentsMargins(6, 3, 6, 3)
@@ -670,6 +483,13 @@ class AudioQueueItemWidget(QWidget):
         )
         self.lbl_badge.setVisible(False)
 
+        # Speaker selection / status button
+        self.btn_select_f = QPushButton("Definir F")
+        self.btn_select_f.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_select_f.setToolTip("Selecionar ou alterar quem é o falante principal (F.)")
+        self.btn_select_f.setVisible(False)
+        self.btn_select_f.clicked.connect(lambda: self.select_speaker_requested.emit(self.filepath))
+
         # Remove button
         self.btn_remove = QPushButton("✕")
         self.btn_remove.setFixedSize(20, 20)
@@ -684,11 +504,42 @@ class AudioQueueItemWidget(QWidget):
         layout.addWidget(self.lbl_icon)
         layout.addWidget(self.lbl_name, stretch=1)
         layout.addWidget(self.lbl_badge)
+        layout.addWidget(self.btn_select_f)
         layout.addWidget(self.btn_remove)
 
-    def set_done(self):
+    def set_done(self, speaker_label: Optional[str] = None, is_confirmed: bool = True):
         self.lbl_badge.setVisible(True)
         self.btn_remove.setVisible(False)
+        self._is_speaker_confirmed = is_confirmed
+        self._update_speaker_button_style(speaker_label, is_confirmed)
+        self.btn_select_f.setVisible(True)
+
+    def set_speaker_confirmed(self, speaker_label: str):
+        self._is_speaker_confirmed = True
+        self._update_speaker_button_style(speaker_label, is_confirmed=True)
+
+    def is_speaker_confirmed(self) -> bool:
+        return self._is_speaker_confirmed
+
+    def _update_speaker_button_style(self, speaker_label: Optional[str] = None, is_confirmed: bool = True):
+        fs = max(10, self.font_size - 2)
+        if is_confirmed:
+            txt = f"Falante: {speaker_label}" if speaker_label else "F Definido"
+            self.btn_select_f.setText(txt)
+            self.btn_select_f.setToolTip(f"Falante principal confirmado ({speaker_label or 'F'}). Clique para alterar se necessário.")
+            self.btn_select_f.setStyleSheet(
+                f"QPushButton {{ background-color: transparent; color: {self.theme['TXT_SECONDARY']}; "
+                f"border: 1px solid {self.theme['BORDER_MID']}; font-size: {fs}px; font-weight: 500; padding: 2px 8px; border-radius: 4px; }} "
+                f"QPushButton:hover {{ border-color: {self.theme['ACCENT_PRIMARY']}; color: {self.theme['TXT_PRIMARY']}; background-color: {self.theme['BG_HOVER']}; }}"
+            )
+        else:
+            self.btn_select_f.setText("⚠️ Definir F")
+            self.btn_select_f.setToolTip("Falante F atribuído provisoriamente como sugestão. Clique para definir quem é o F.")
+            self.btn_select_f.setStyleSheet(
+                f"QPushButton {{ background-color: {self.theme['ACCENT_PRIMARY']}; color: {self.theme['BTN_TEXT']}; "
+                f"border: 1px solid {self.theme['ACCENT_PRIMARY']}; font-size: {fs}px; font-weight: bold; padding: 2px 8px; border-radius: 4px; }} "
+                f"QPushButton:hover {{ background-color: {self.theme['ACCENT_HOVER']}; }}"
+            )
 
     def is_done(self) -> bool:
         return self.lbl_badge.isVisible()
@@ -709,6 +560,11 @@ class AudioQueueItemWidget(QWidget):
             f"QPushButton {{ background-color: transparent; border: none; color: {theme['TXT_SECONDARY']}; font-size: 11px; font-weight: bold; border-radius: 10px; padding: 0px; }}"
             f"QPushButton:hover {{ background-color: #ff5555; color: #ffffff; }}"
         )
+        if self.btn_select_f.isVisible():
+            self._update_speaker_button_style(
+                speaker_label=self.btn_select_f.text().replace("Falante: ", "").replace("⚠️ Definir F", ""),
+                is_confirmed=self._is_speaker_confirmed
+            )
 
 
 # ==================== LINE NUMBERED TRANSCRIPT EDITOR ====================
@@ -1471,9 +1327,15 @@ class MainWindow(QMainWindow):
         self.btn_save_transcript.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_save_transcript.setToolTip("Salva as alterações no arquivo atual (Ctrl+S)")
         self.btn_save_transcript.clicked.connect(self._save_current_transcript)
-        self.btn_save_transcript.setEnabled(False)
+        self.btn_change_speaker = QPushButton("👤 Definir Falante (F.)")
+        self.btn_change_speaker.setObjectName("btn_editor_action")
+        self.btn_change_speaker.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_change_speaker.setToolTip("Alterar ou definir o falante principal (F.) para esta transcrição")
+        self.btn_change_speaker.setEnabled(False)
+        self.btn_change_speaker.clicked.connect(self._on_reader_change_speaker_clicked)
 
         top_bar_layout.addWidget(self.lbl_reader_filename, stretch=1)
+        top_bar_layout.addWidget(self.btn_change_speaker)
         top_bar_layout.addWidget(self.btn_toggle_find)
         top_bar_layout.addWidget(self.btn_save_revised)
         top_bar_layout.addWidget(self.btn_save_transcript)
@@ -2009,6 +1871,8 @@ class MainWindow(QMainWindow):
                 self.btn_save_transcript.setEnabled(False)
             if hasattr(self, "btn_save_revised"):
                 self.btn_save_revised.setEnabled(False)
+            if hasattr(self, "btn_change_speaker"):
+                self.btn_change_speaker.setEnabled(False)
             self._update_text_stats()
             return
 
@@ -2034,6 +1898,9 @@ class MainWindow(QMainWindow):
                     self.btn_save_revised.setEnabled(True)
                 if hasattr(self, "btn_save_as"):
                     self.btn_save_as.setEnabled(True)
+                if hasattr(self, "btn_change_speaker"):
+                    meta = load_speaker_metadata(self.output_dir, os.path.basename(filepath))
+                    self.btn_change_speaker.setEnabled(bool(meta and meta.get("speaker_info")))
                 self._update_text_stats()
             except Exception as e:
                 self.txt_reader.setPlainText(f"Erro ao ler arquivo: {e}")
@@ -2789,6 +2656,7 @@ class MainWindow(QMainWindow):
                         os.path.basename(f), f, self.current_theme, self.current_font_size
                     )
                     item_widget.removed.connect(self._on_remove_queued_audio)
+                    item_widget.select_speaker_requested.connect(self._on_select_speaker_for_file)
                     item.setSizeHint(QSize(0, max(36, self.current_font_size * 2 + 10)))
                     self.list_audios.addItem(item)
                     self.list_audios.setItemWidget(item, item_widget)
@@ -2889,55 +2757,57 @@ class MainWindow(QMainWindow):
 
     def _on_speaker_requested(self, speaker_info: list):
         """
-        Triggered by the worker when it needs the user to pick the main
-        speaker. Opens a modal dialog, then passes the result back to
-        the worker and unblocks it.
+        Triggered by the worker when speakers are detected.
+        Shows the selection dialog with an automatic countdown timer (15s).
+        If the user does not choose or closes the dialog, the suggested speaker
+        is used provisorily so that the queue continues without stopping!
         """
-        self._pause_waiting_animation("Aguardando seleção do falante principal (F.)…")
+        filename = speaker_info[0].get("filename", "") if speaker_info else ""
+        self._pause_waiting_animation(f"Seleção de falante (F.) para '{filename}'…")
 
-        chosen = SpeakerSelectionDialog.select_speaker(
-            speaker_info, parent=self, theme=self.current_theme
+        chosen, is_confirmed, is_aborted = SpeakerSelectionDialog.select_speaker(
+            speaker_info,
+            parent=self,
+            theme=self.current_theme,
+            auto_timeout_sec=15,
+            filename=filename,
         )
 
-        if chosen is None:
-            # User closed the dialog without choosing — abort the worker
-            self.txt_logs.append("> Seleção de falante cancelada — abortando transcrição.")
+        if is_aborted:
+            self.txt_logs.append("> Transcrição interrompida pelo usuário.")
             self._stop_waiting_animation()
             self.worker.request_abort()
+            return
+
+        if is_confirmed:
+            self.txt_logs.append(f"> Falante principal (F.) confirmado: {chosen}")
         else:
-            self.txt_logs.append(f"> Falante selecionado: {chosen}")
-            self._resume_waiting_animation("Transcrevendo áudios… Aguarde um instante")
-            self.worker.set_selected_speaker(chosen)
+            self.txt_logs.append(
+                f"> Falante provisório definido como sugerido ({chosen}) para não travar a fila. Você poderá alterar depois."
+            )
+
+        self._resume_waiting_animation("Transcrevendo áudios… Aguarde um instante")
+        self.worker.set_selected_speaker(chosen, is_confirmed=is_confirmed)
 
     def _on_file_finished(self, filename: str):
-        """Mark the corresponding queue item as completed and refresh reader tab."""
+        """Mark the corresponding queue item as completed and set speaker status."""
+        meta = load_speaker_metadata(self.output_dir, filename)
+        is_confirmed = meta.get("is_confirmed", False) if meta else True
+        f_speaker = meta.get("f_speaker_id", "") if meta else ""
+
         for i in range(self.list_audios.count()):
             item = self.list_audios.item(i)
             widget = self.list_audios.itemWidget(item)
             if isinstance(widget, AudioQueueItemWidget):
-                if widget.filename == filename or os.path.basename(widget.filename) == filename:
-                    widget.set_done()
+                if widget.filename == filename or os.path.basename(widget.filepath) == filename:
+                    widget.set_done(speaker_label=f_speaker, is_confirmed=is_confirmed)
         self._refresh_reader_files()
 
     def _on_continue_requested(self, next_basename: str):
-        """Prompt user before proceeding to the next file in the queue."""
-        self._pause_waiting_animation(f"Aguardando confirmação para iniciar '{next_basename}'…")
-
-        reply = QMessageBox.question(
-            self,
-            "Continuar Transcrição",
-            f"Arquivo concluído com sucesso!\n\nDeseja prosseguir para a transcrição do próximo áudio:\n'{next_basename}'?",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-            QMessageBox.StandardButton.Yes,
-        )
-        if reply == QMessageBox.StandardButton.Yes:
-            self.txt_logs.append(f"> Continuando transcrição: iniciando '{next_basename}'...")
-            self._resume_waiting_animation("Transcrevendo áudios… Aguarde um instante")
-            self.worker.set_continue_response(True)
-        else:
-            self.txt_logs.append(f"> Interrupção solicitada pelo usuário antes de '{next_basename}'.")
-            self._stop_waiting_animation()
-            self.worker.set_continue_response(False)
+        """Proceed to the next file in the queue automatically without interrupting batch flow."""
+        self.txt_logs.append(f"> Prosseguindo para o próximo áudio: '{next_basename}'…")
+        self._resume_waiting_animation(f"Iniciando '{next_basename}'…")
+        self.worker.set_continue_response(True)
 
     def _on_worker_finished(self):
         self.txt_logs.append("> Pipeline finalizado.")
@@ -2957,6 +2827,105 @@ class MainWindow(QMainWindow):
 
         self._refresh_reader_files()
         self.worker = None
+
+        # Check for any files where F was auto-assigned as suggested without user confirmation
+        pending_files = []
+        for i in range(self.list_audios.count()):
+            item = self.list_audios.item(i)
+            widget = self.list_audios.itemWidget(item)
+            if isinstance(widget, AudioQueueItemWidget) and widget.is_done() and not widget.is_speaker_confirmed():
+                pending_files.append(widget.filepath)
+
+        if pending_files:
+            self.txt_logs.append(
+                f"> Concluído: {len(pending_files)} áudio(s) possuem falante principal (F.) com sugestão provisória."
+            )
+            reply = QMessageBox.question(
+                self,
+                "Revisão de Falantes (F.)",
+                f"A fila de áudios foi totalmente transcrita com sucesso!\n\n"
+                f"Existem {len(pending_files)} áudio(s) com o falante principal (F.) atribuído provisoriamente como sugestão.\n\n"
+                f"Deseja selecionar/revisar o falante principal de cada um agora?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.Yes,
+            )
+            if reply == QMessageBox.StandardButton.Yes:
+                for fp in pending_files:
+                    self._on_select_speaker_for_file(fp)
+
+    def _on_select_speaker_for_file(self, filepath: str):
+        """Open speaker selection dialog for an already completed transcription."""
+        filename = os.path.basename(filepath)
+        meta = load_speaker_metadata(self.output_dir, filename)
+        if not meta or not meta.get("speaker_info"):
+            QMessageBox.information(
+                self,
+                "Informações de Falantes",
+                f"Não foram encontrados dados de falantes detectados para '{filename}'.\n"
+                f"Isso pode ocorrer caso o arquivo tenha sido gerado por uma versão antiga.",
+            )
+            return
+
+        speaker_info = meta.get("speaker_info", [])
+        current_f = meta.get("f_speaker_id")
+
+        chosen, is_confirmed, is_aborted = SpeakerSelectionDialog.select_speaker(
+            speaker_info,
+            parent=self,
+            theme=self.current_theme,
+            auto_timeout_sec=0,  # No countdown in post-processing mode
+            current_f=current_f,
+            filename=filename,
+        )
+
+        if is_aborted:
+            return
+
+        if chosen:
+            success, msg = update_transcript_speakers(meta, chosen, self.output_dir)
+            if success:
+                self.txt_logs.append(f"> '{filename}': {msg}")
+                # Update queue item widget if present in the audio list
+                for i in range(self.list_audios.count()):
+                    item = self.list_audios.item(i)
+                    widget = self.list_audios.itemWidget(item)
+                    if isinstance(widget, AudioQueueItemWidget) and (
+                        widget.filepath == filepath or widget.filename == filename
+                    ):
+                        widget.set_done(speaker_label=chosen, is_confirmed=True)
+
+                # If currently open in reader editor, reload content
+                if self._current_open_filepath:
+                    curr_name = os.path.basename(self._current_open_filepath)
+                    if get_meta_base_name(curr_name) == get_meta_base_name(filename):
+                        self._load_transcript_file(self._current_open_filepath)
+
+                self._refresh_reader_files()
+            else:
+                QMessageBox.warning(self, "Aviso", msg)
+
+    def _on_reader_change_speaker_clicked(self):
+        """Handle 'Definir Falante (F.)' button click in the reader tab."""
+        if not self._current_open_filepath:
+            return
+        self._on_select_speaker_for_file(self._current_open_filepath)
+
+    def _load_transcript_file(self, filepath: str):
+        """Helper to reload a transcript file into the editor."""
+        if not filepath or not os.path.exists(filepath):
+            return
+        try:
+            with open(filepath, "r", encoding="utf-8") as f:
+                content = f.read()
+            self._ignore_text_changes = True
+            self.txt_reader.setPlainText(content)
+            self.txt_reader.clear_highlights()
+            self._ignore_text_changes = False
+            self.lbl_reader_filename.setText(os.path.basename(filepath))
+            self.lbl_save_status.setText("Atualizado após seleção de falante")
+            self._update_text_stats()
+        except Exception as e:
+            self.txt_logs.append(f"> Erro ao recarregar transcrição no leitor: {e}")
 
     # ── Mode selection & updates ─────────────────────────────────────────
     def _on_mode_changed(self, index: int):
