@@ -55,6 +55,27 @@ pyinstaller --noconfirm CoelhoTranscriber.spec
 
 The output is created in `dist/CoelhoTranscriber/`.
 
+## Command line (scripts and AI agents)
+
+`coelho_cli.py` runs the same pipeline as the GUI without opening a window. It
+reads the same keys (`DEEPGRAM_API_KEY` / `ASSEMBLYAI_API_KEY`, or the GUI's
+`config.json`) and writes to the same output folder. Run it from source with
+`python coelho_cli.py <command>`, or with `coelho-cli.cmd` on Windows.
+
+```bash
+python coelho_cli.py transcrever interview.mp3 --so-plano --json      # free: shows what would be uploaded
+python coelho_cli.py transcrever interview.mp3 --confirmo-nuvem       # uploads; transcript on stdout
+python coelho_cli.py transcrever folder/ --confirmo-nuvem --json      # JSON summary (paths, speakers, flags)
+python coelho_cli.py falantes interview --json                        # speakers of a finished transcript
+python coelho_cli.py trocar-f interview --falante 1                   # change who is F. (no new upload)
+python coelho_cli.py config --json                                    # where the keys come from (never the keys)
+```
+
+Nothing is uploaded unless `--confirmo-nuvem` is given. Without it the command
+prints the plan and exits with status 4. Exit statuses: 0 ok, 1 bad option,
+2 API key missing, 3 engine or network failure, 4 upload not confirmed,
+5 audio not found or unsupported, 6 output already exists (`--sobrescrever`).
+
 ## API keys & security
 
 - **No API keys are included in this repository or in the release.**
