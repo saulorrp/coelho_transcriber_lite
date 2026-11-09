@@ -424,6 +424,7 @@ class TranscriptionWorker(QThread):
 
     def _process_file_cloud(self, filepath: str, aai, config):
         total_steps = 4 if self.academic_mode else 3
+        transcript = None
 
         try:
             self._step(1, total_steps, "Fazendo upload e transcrevendo via AssemblyAI…")
@@ -553,6 +554,13 @@ class TranscriptionWorker(QThread):
 
         except Exception as exc:
             self.error_signal.emit(f"Erro ao processar '{os.path.basename(filepath)}': {exc}")
+        finally:
+            if transcript is not None and getattr(transcript, "id", None):
+                try:
+                    aai.Transcript.delete_by_id(transcript.id)
+                    self._log("  🔒  Transcrição removida dos servidores da AssemblyAI (Zero Retention).")
+                except Exception as del_exc:
+                    self._log(f"  ⚠️  Não foi possível excluir transcrição remota na AssemblyAI: {del_exc}")
 
     def _request_speaker_selection_cloud(self, utterances: list, filepath: str = "") -> Tuple[Optional[str], List[dict]]:
         """Emit speaker info to the GUI and wait or fallback to suggested so queue continues."""

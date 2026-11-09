@@ -85,6 +85,7 @@ prints the plan and exits with status 4. Exit statuses: 0 ok, 1 bad option,
   (`Documents\Coelho95 Transcriber\config.json`).
 - `config.json` and `.env` are git-ignored. Never commit them.
 - Deepgram requests send `mip_opt_out=true` by default to opt out of Deepgram's Model Improvement Program (model training).
+- AssemblyAI transcriptions are automatically deleted from AssemblyAI's servers (`Transcript.delete_by_id`) as soon as the local transcript file is saved.
 
 ## Project layout
 
