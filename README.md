@@ -84,6 +84,7 @@ prints the plan and exits with status 4. Exit statuses: 0 ok, 1 bad option,
 - Keys you enter in the app are saved only on your machine
   (`Documents\Coelho95 Transcriber\config.json`).
 - `config.json` and `.env` are git-ignored. Never commit them.
+- Deepgram requests send `mip_opt_out=true` by default to opt out of Deepgram's Model Improvement Program (model training).
 
 ## Project layout
 

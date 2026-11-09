@@ -683,7 +683,7 @@ class TranscriptionWorker(QThread):
         self._log(f"{'═' * 60}")
         self._log(f"  Engine   : Deepgram Nova-3 (REST API)")
         self._log(f"  Language : Portuguese (BR)  ·  Smart Format ON")
-        self._log(f"  Features : Speaker diarization · Punctuation")
+        self._log(f"  Features : Speaker diarization · Punctuation · MIP Opt-Out ON")
         if self.academic_mode:
             self._log(f"  Pipeline : ACADEMIC (LLM Formatting via AssemblyAI Gateway)")
         self._log(f"  Files    : {len(self.file_paths)} audio file(s)")
@@ -738,6 +738,7 @@ class TranscriptionWorker(QThread):
                 "diarize": "true",
                 "punctuate": "true",
                 "smart_format": "true",
+                "mip_opt_out": "true",
             }
 
             with httpx.Client(timeout=httpx.Timeout(connect=60.0, read=600.0, write=600.0, pool=60.0)) as http_client:
