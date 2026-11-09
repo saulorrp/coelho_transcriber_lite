@@ -19,6 +19,7 @@ Portuguese by default), but works for any audio the APIs support.
 - Dark / light theme and adjustable font size
 - Runs transcription in background threads (the UI never freezes)
 - Supports `.mp3 .wav .m4a .mp4 .mkv .ogg .aac .flac .opus .webm .wma .mov`
+- **Auto-Update**: Automatically checks for new versions on GitHub with 1-click update popup dialog
 
 ## Quick start (Windows release)
 

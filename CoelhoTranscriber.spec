@@ -16,8 +16,10 @@ datas = [
 hiddenimports = [
     # Application modules
     'components.transcription_worker',
+    'components.updater',
     'widgets.speaker_manager',
     'dialogs.speaker_dialog',
+    'dialogs.update_dialog',
 
     # Cloud & Network
     'assemblyai',

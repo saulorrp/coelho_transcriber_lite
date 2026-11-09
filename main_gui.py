@@ -16,6 +16,8 @@ for sub in ["components", "widgets", "dialogs"]:
             sys.path.insert(0, meipass_sub)
 
 from speaker_dialog import SpeakerSelectionDialog
+from update_dialog import UpdateAvailableDialog
+from updater import APP_VERSION, UpdateCheckWorker
 from speaker_manager import (
     load_speaker_metadata,
     update_transcript_speakers,
@@ -904,7 +906,7 @@ class DeepgramBalanceWorker(QThread):
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("Transcritor de Áudio")
+        self.setWindowTitle(f"Transcritor de Áudio — v{APP_VERSION}")
         self.resize(1020, 720)
 
         self.current_theme_name = "day"
@@ -923,6 +925,7 @@ class MainWindow(QMainWindow):
         self._init_ui()
         self._load_config()
         self.apply_theme(self.current_theme_name)
+        QTimer.singleShot(1500, self._check_for_updates)
         
     def _setup_paths(self):
         """Configure directory paths ensuring compatibility with PyInstaller and components/icons"""
@@ -2977,12 +2980,29 @@ class MainWindow(QMainWindow):
         self.lbl_deepgram_balance.setStyleSheet(f"color: {color}; font-size: 12px; font-weight: 600;")
         self.btn_check_deepgram_balance.setEnabled(True)
 
+    def _check_for_updates(self):
+        """Initiate background update check."""
+        self._update_worker = UpdateCheckWorker(self)
+        self._update_worker.update_available.connect(self._on_update_available)
+        self._update_worker.start()
+
+    def _on_update_available(self, new_version: str, notes: str, url: str):
+        """Open update dialog when a newer version is discovered."""
+        dialog = UpdateAvailableDialog(
+            new_version=new_version,
+            release_notes=notes,
+            download_url=url,
+            parent=self,
+            theme=self.current_theme
+        )
+        dialog.exec()
+
 
 if __name__ == "__main__":
     # Ensure Windows taskbar groups and shows the application icon
     try:
         import ctypes
-        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("coelho.transcriber.app.1.0")
+        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(f"coelho.transcriber.app.{APP_VERSION}")
     except Exception:
         pass
 
