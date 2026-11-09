@@ -223,3 +223,4 @@ del "{zip_path}" >nul 2>&1
         app.quit()
     else:
         sys.exit(0)
+

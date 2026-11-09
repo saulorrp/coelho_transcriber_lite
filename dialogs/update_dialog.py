@@ -244,3 +244,4 @@ class UpdateAvailableDialog(QDialog):
                 color: {self.theme['TXT_SECONDARY']};
             }}
         """)
+
